@@ -122,10 +122,7 @@ func getNowPlaying() (Details, error) {
 	name := string(initialState["Title"])
 	artist := string(initialState["Artist"])
 	album := string(initialState["Album"])
-	year, err := strconv.Atoi(strings.Split(string(initialState["Date"]), "-")[0])
-	if err != nil {
-		return Details{}, err
-	}
+	year, _ := strconv.Atoi(strings.Split(string(initialState["Date"]), "-")[0])
 	duration, err := strconv.ParseFloat(initialState["Time"], 64)
 	if err != nil {
 		return Details{}, err
