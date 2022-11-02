@@ -7,12 +7,12 @@ require (
 	github.com/cheshir/ttlcache v1.0.0
 	github.com/fhs/gompd/v2 v2.3.0
 	github.com/hugolgst/rich-go v0.0.0-20210925091458-d59fb695d9c0
+	github.com/irlndts/go-discogs v0.3.5
 )
 
 require (
 	github.com/aymanbagabas/go-osc52 v1.2.1 // indirect
 	github.com/charmbracelet/lipgloss v0.6.0 // indirect
-	github.com/irlndts/go-discogs v0.3.5 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.16 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect

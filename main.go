@@ -39,7 +39,7 @@ func main() {
 	}()
 
 	// Connect to MPD server
-	mpdClient, err = mpd.Dial("tcp", "localhost:6600")
+	mpdClient, err = mpd.Dial("tcp", "127.0.0.1:6600")
 	if err != nil {
 		log.WithError(err).Fatal("failed to connect to MPD server")
 	}
