@@ -26,8 +26,9 @@ const (
 var (
 	artworkCache = ttlcache.New(time.Minute)
 	songCache    = ttlcache.New(time.Minute)
+	urlCache     = ttlcache.New(time.Minute)
 	mpdClient    *mpd.Client
-	lastfmApi    = lastfm.New(apiKey, apiSecret)
+	lastfmAPI    = lastfm.New(apiKey, apiSecret)
 	err          error
 )
 
@@ -131,9 +132,10 @@ func getNowPlaying() (Details, error) {
 		return Details{}, err
 	}
 
-	url, err := getArtwork(artist, album)
+	url, artworkURL, err := getArtwork(artist, album)
 	if err != nil {
-		url = ""
+		url, artworkURL = "", ""
+		log.WithError(err).Warn("could not get album artwork")
 	}
 
 	song := Song{
@@ -143,7 +145,8 @@ func getNowPlaying() (Details, error) {
 		Album:    album,
 		Year:     year,
 		Duration: duration,
-		Artwork:  url,
+		Artwork:  artworkURL,
+		URL:      url,
 	}
 
 	songCache.Set(ttlcache.Int64Key(songID), song, 24*time.Hour)
@@ -170,26 +173,36 @@ type Song struct {
 	Duration      float64
 	Artwork       string
 	ArtworkSource string
+	URL           string
 }
 
-func getArtwork(artist, album string) (string, error) {
+func getArtwork(artist, album string) (string, string, error) {
 	key := url.QueryEscape(strings.Join([]string{artist, album}, " "))
-	cached, ok := artworkCache.Get(ttlcache.StringKey(key))
-	if ok {
+	cachedURL, urlOk := urlCache.Get(ttlcache.StringKey(key))
+	cachedArtwork, artOk := artworkCache.Get(ttlcache.StringKey(key))
+	if artOk && urlOk {
 		log.WithField("key", key).Debug("got album artwork from cache")
-		return cached.(string), nil
+		return cachedURL.(string), cachedArtwork.(string), nil
 	}
 
-	res, err := lastfmApi.Album.GetInfo(lastfm.P{
+	res, err := lastfmAPI.Album.GetInfo(lastfm.P{
 		"artist": artist,
 		"album":  album,
 	})
-	if err != nil || len(res.Images) == 0 {
-		return "", err
+	if err != nil {
+		return "", "", err
 	}
-	url := res.Images[2].Url
-	artworkCache.Set(ttlcache.StringKey(key), url, time.Hour)
-	return url, nil
+	url := ""
+	artwork := ""
+	if res.Images[2].Url != "" {
+		artwork = res.Images[2].Url
+	}
+	if res.Url != "" {
+		url = res.Url
+	}
+	artworkCache.Set(ttlcache.StringKey(key), artwork, time.Hour)
+	urlCache.Set(ttlcache.StringKey(key), url, time.Hour)
+	return url, artwork, nil
 }
 
 type activityConnection struct {
@@ -231,7 +244,6 @@ func (ac *activityConnection) play(details Details) error {
 
 	start := time.Now().Add(-1 * time.Duration(details.Position) * time.Second)
 	end := time.Now().Add(time.Duration(song.Duration-details.Position) * time.Second)
-	searchURL := fmt.Sprintf("https://www.last.fm/search/tracks?q=%s", url.QueryEscape(song.Artist+" "+song.Name))
 	if !ac.connected {
 		if err := client.Login("1037215044141854721"); err != nil {
 			log.WithError(err).Fatal("could not create rich presence client")
@@ -239,23 +251,28 @@ func (ac *activityConnection) play(details Details) error {
 		ac.connected = true
 	}
 
+	var buttons []*client.Button
+	if song.URL != "" {
+		buttons = []*client.Button{
+			{
+				Label: "View on Last.fm",
+				Url:   song.URL,
+			},
+		}
+	}
+
 	if err := client.SetActivity(client.Activity{
-		State:      fmt.Sprintf("by %s (%s)", song.Artist, song.Album),
+		State:      fmt.Sprintf("by %s", song.Artist),
 		Details:    song.Name,
-		LargeImage: firstNonEmpty(song.Artwork, "mpd"),
-		SmallImage: "play",
-		LargeText:  song.Name,
-		SmallText:  fmt.Sprintf("%s by %s (%s)", song.Name, song.Artist, song.Album),
+		LargeImage: firstNonEmpty(song.Artwork, "logo"),
+		SmallImage: "nowplaying",
+		LargeText:  song.Album,
+		SmallText:  fmt.Sprintf("%s by %s", song.Name, song.Artist),
 		Timestamps: &client.Timestamps{
 			Start: timePtr(start),
 			End:   timePtr(end),
 		},
-		Buttons: []*client.Button{
-			{
-				Label: "Search on Last.fm",
-				Url:   searchURL,
-			},
-		},
+		Buttons: buttons,
 	}); err != nil {
 		return err
 	}
