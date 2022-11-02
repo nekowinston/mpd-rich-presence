@@ -85,7 +85,6 @@ func getNowPlaying() (Details, error) {
 
 	status, err := mpdClient.Status()
 	if err != nil {
-		fmt.Println(err)
 		return Details{}, err
 	}
 	state := status["state"]
@@ -105,7 +104,7 @@ func getNowPlaying() (Details, error) {
 		return Details{}, err
 	}
 
-	position, err := strconv.ParseFloat("0", 64)
+	position, err := strconv.ParseFloat(strings.Split(status["time"], ":")[0], 64)
 	if err != nil {
 		return Details{}, err
 	}
@@ -128,6 +127,10 @@ func getNowPlaying() (Details, error) {
 	if err != nil {
 		return Details{}, err
 	}
+	duration, err := strconv.ParseFloat(initialState["Time"], 64)
+	if err != nil {
+		return Details{}, err
+	}
 
 	url, err := getArtwork(artist, album, name)
 	if err != nil {
@@ -135,13 +138,13 @@ func getNowPlaying() (Details, error) {
 	}
 
 	song := Song{
-		ID:     songID,
-		Name:   name,
-		Artist: artist,
-		Album:  album,
-		Year:   year,
-		// Duration: duration,
-		Artwork: url,
+		ID:       songID,
+		Name:     name,
+		Artist:   artist,
+		Album:    album,
+		Year:     year,
+		Duration: duration,
+		Artwork:  url,
 	}
 
 	songCache.Set(ttlcache.Int64Key(songID), song, 24*time.Hour)
