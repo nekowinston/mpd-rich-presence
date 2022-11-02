@@ -1,11 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"flag"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -16,20 +12,23 @@ import (
 	"github.com/cheshir/ttlcache"
 	"github.com/fhs/gompd/v2/mpd"
 	"github.com/hugolgst/rich-go/client"
-	"github.com/irlndts/go-discogs"
+	"github.com/shkh/lastfm-go/lastfm"
 )
 
-const statePlaying = "play"
+const (
+	apiKey       = "2236babefa8ebb3d93ea467560d00d04"
+	apiSecret    = "94d9a09c0cd5be955c4afaeaffcaefcd"
+	longSleep    = time.Minute
+	shortSleep   = 5 * time.Second
+	statePlaying = "play"
+)
 
 var (
-	shortSleep    = 5 * time.Second
-	longSleep     = time.Minute
-	songCache     = ttlcache.New(time.Minute)
-	artworkCache  = ttlcache.New(time.Minute)
-	mpdClient     *mpd.Client
-	discogsClient discogs.Discogs
-	discogsToken  = flag.String("discogs-token", "", "Discogs token")
-	err           error
+	artworkCache = ttlcache.New(time.Minute)
+	songCache    = ttlcache.New(time.Minute)
+	mpdClient    *mpd.Client
+	lastfmApi    = lastfm.New(apiKey, apiSecret)
+	err          error
 )
 
 func main() {
@@ -45,17 +44,7 @@ func main() {
 	}
 	defer mpdClient.Close()
 
-	flag.Parse()
-	if len(*discogsToken) != 0 {
-		log.Info("using discogs")
-		discogsClient, err = discogs.New(&discogs.Options{
-			UserAgent: "MPD Rich Presence",
-			Currency:  "USD",
-			Token:     *discogsToken,
-		})
-	}
-
-	if os.Getenv("DARP_DEBUG") != "" {
+	if os.Getenv("DEBUG") != "" {
 		log.SetLevelFromString("debug")
 	}
 	ac := activityConnection{}
@@ -142,34 +131,19 @@ func getNowPlaying() (Details, error) {
 		return Details{}, err
 	}
 
-	artworkSource := ""
-	url, err := getArtwork(artist, album, name)
+	url, err := getArtwork(artist, album)
 	if err != nil {
-		return Details{}, err
-	}
-	if url != "" {
-		artworkSource = "apple"
-	}
-
-	if url == "" && len(*discogsToken) != 0 {
-		url, err = getArtworkFromDiscogs(artist, album)
-		if err != nil {
-			log.WithError(err).Warn("could not get artwork from discogs")
-		}
-		if url != "" {
-			artworkSource = "discogs"
-		}
+		url = ""
 	}
 
 	song := Song{
-		ID:            songID,
-		Name:          name,
-		Artist:        artist,
-		Album:         album,
-		Year:          year,
-		Duration:      duration,
-		Artwork:       url,
-		ArtworkSource: artworkSource,
+		ID:       songID,
+		Name:     name,
+		Artist:   artist,
+		Album:    album,
+		Year:     year,
+		Duration: duration,
+		Artwork:  url,
 	}
 
 	songCache.Set(ttlcache.Int64Key(songID), song, 24*time.Hour)
@@ -198,56 +172,24 @@ type Song struct {
 	ArtworkSource string
 }
 
-func getArtwork(artist, album, song string) (string, error) {
-	key := url.QueryEscape(strings.Join([]string{artist, album, song}, " "))
+func getArtwork(artist, album string) (string, error) {
+	key := url.QueryEscape(strings.Join([]string{artist, album}, " "))
 	cached, ok := artworkCache.Get(ttlcache.StringKey(key))
 	if ok {
 		log.WithField("key", key).Debug("got album artwork from cache")
 		return cached.(string), nil
 	}
 
-	resp, err := http.Get("https://itunes.apple.com/search?term=" + key + "&limit=1&entity=song")
-	if err != nil {
+	res, err := lastfmApi.Album.GetInfo(lastfm.P{
+		"artist": artist,
+		"album":  album,
+	})
+	if err != nil || len(res.Images) == 0 {
 		return "", err
 	}
-	defer resp.Body.Close()
-
-	bts, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	var result getArtworkResult
-	if err := json.Unmarshal(bts, &result); err != nil {
-		return "", err
-	}
-	if result.ResultCount == 0 {
-		return "", nil
-	}
-	url := result.Results[0].ArtworkUrl100
+	url := res.Images[2].Url
 	artworkCache.Set(ttlcache.StringKey(key), url, time.Hour)
 	return url, nil
-}
-
-func getArtworkFromDiscogs(artist, album string) (string, error) {
-	res, err := discogsClient.Search(discogs.SearchRequest{
-		Artist:       artist,
-		ReleaseTitle: album,
-	})
-	if err != nil {
-		return "", err
-	}
-	if len(res.Results) == 0 {
-		return "", nil
-	}
-	return res.Results[0].Thumb, nil
-}
-
-type getArtworkResult struct {
-	ResultCount int `json:"resultCount"`
-	Results     []struct {
-		ArtworkUrl100 string `json:"artworkUrl100"`
-	} `json:"results"`
 }
 
 type activityConnection struct {
@@ -272,6 +214,7 @@ func (ac *activityConnection) play(details Details) error {
 			log.
 				WithField("songID", song.ID).
 				WithField("position", details.Position).
+				WithField("progress", details.Position/song.Duration).
 				Debug("ongoing activity, ignoring")
 			return nil
 		}
@@ -287,7 +230,7 @@ func (ac *activityConnection) play(details Details) error {
 	ac.lastSongID = song.ID
 
 	start := time.Now().Add(-1 * time.Duration(details.Position) * time.Second)
-	// end := time.Now().Add(time.Duration(song.Duration-details.Position) * time.Second)
+	end := time.Now().Add(time.Duration(song.Duration-details.Position) * time.Second)
 	searchURL := fmt.Sprintf("https://www.last.fm/search/tracks?q=%s", url.QueryEscape(song.Artist+" "+song.Name))
 	if !ac.connected {
 		if err := client.Login("1037215044141854721"); err != nil {
@@ -299,13 +242,13 @@ func (ac *activityConnection) play(details Details) error {
 	if err := client.SetActivity(client.Activity{
 		State:      fmt.Sprintf("by %s (%s)", song.Artist, song.Album),
 		Details:    song.Name,
-		LargeImage: firstNonEmpty(song.Artwork, "applemusic"),
+		LargeImage: firstNonEmpty(song.Artwork, "mpd"),
 		SmallImage: "play",
 		LargeText:  song.Name,
 		SmallText:  fmt.Sprintf("%s by %s (%s)", song.Name, song.Artist, song.Album),
 		Timestamps: &client.Timestamps{
 			Start: timePtr(start),
-			// End:   timePtr(end),
+			End:   timePtr(end),
 		},
 		Buttons: []*client.Button{
 			{
@@ -323,7 +266,6 @@ func (ac *activityConnection) play(details Details) error {
 		WithField("year", song.Year).
 		WithField("duration", time.Duration(song.Duration)*time.Second).
 		WithField("position", time.Duration(details.Position)*time.Second).
-		WithField("artworkSource", song.ArtworkSource).
 		Info("now playing")
 	return nil
 }
