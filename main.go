@@ -7,23 +7,25 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/caarlos0/log"
 	"github.com/cheshir/ttlcache"
+	"github.com/fhs/gompd/v2/mpd"
 	"github.com/hugolgst/rich-go/client"
 )
 
-const statePlaying = "playing"
+const statePlaying = "play"
 
 var (
 	shortSleep   = 5 * time.Second
 	longSleep    = time.Minute
 	songCache    = ttlcache.New(time.Minute)
 	artworkCache = ttlcache.New(time.Minute)
+	mpdClient    *mpd.Client
+	err          error
 )
 
 func main() {
@@ -32,6 +34,13 @@ func main() {
 		_ = artworkCache.Close()
 	}()
 
+	// Connect to MPD server
+	mpdClient, err = mpd.Dial("tcp", "localhost:6600")
+	if err != nil {
+		log.WithError(err).Fatal("failed to connect to MPD server")
+	}
+	defer mpdClient.Close()
+
 	if os.Getenv("DARP_DEBUG") != "" {
 		log.SetLevelFromString("debug")
 	}
@@ -39,21 +48,8 @@ func main() {
 	defer func() { ac.stop() }()
 
 	for {
-		if !isRunning() {
-			log.WithField("sleep", longSleep).Info("Apple Music is not running")
-			ac.stop()
-			time.Sleep(longSleep)
-			continue
-		}
 		details, err := getNowPlaying()
 		if err != nil {
-			if strings.Contains(err.Error(), "(-1728)") {
-				log.WithField("sleep", longSleep).Info("Apple Music stopped running")
-				ac.stop()
-				time.Sleep(longSleep)
-				continue
-			}
-
 			log.WithError(err).WithField("sleep", shortSleep).Warn("will try again soon")
 			ac.stop()
 			time.Sleep(shortSleep)
@@ -81,50 +77,37 @@ func timePtr(t time.Time) *time.Time {
 	return &t
 }
 
-func isRunning() bool {
-	bts, err := exec.Command("pgrep", "-f", "MacOS/Music").CombinedOutput()
-	return string(bts) != "" && err == nil
-}
-
-func tellMusic(s string) (string, error) {
-	bts, err := exec.Command(
-		"osascript",
-		"-e", "tell application \"Music\"",
-		"-e", s,
-		"-e", "end tell",
-	).CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", strings.TrimSpace(string(bts)), err)
-	}
-	return strings.TrimSpace(string(bts)), nil
-}
-
 func getNowPlaying() (Details, error) {
 	init := time.Now()
 	defer func() {
 		log.WithField("took", time.Since(init)).Info("got info")
 	}()
 
-	initialState, err := tellMusic("get {database id} of current track & {player position, player state}")
+	status, err := mpdClient.Status()
 	if err != nil {
+		fmt.Println(err)
 		return Details{}, err
 	}
-
-	songID, err := strconv.ParseInt(strings.Split(initialState, ", ")[0], 10, 64)
-	if err != nil {
-		return Details{}, err
-	}
-
-	position, err := strconv.ParseFloat(strings.Split(initialState, ", ")[1], 64)
-	if err != nil {
-		return Details{}, err
-	}
-
-	state := strings.Split(initialState, ", ")[2]
+	state := status["state"]
 	if state != statePlaying {
 		return Details{
 			State: state,
 		}, nil
+	}
+
+	initialState, err := mpdClient.CurrentSong()
+	if err != nil {
+		return Details{}, err
+	}
+
+	songID, err := strconv.ParseInt(initialState["Id"], 10, 64)
+	if err != nil {
+		return Details{}, err
+	}
+
+	position, err := strconv.ParseFloat("0", 64)
+	if err != nil {
+		return Details{}, err
 	}
 
 	cached, ok := songCache.Get(ttlcache.Int64Key(songID))
@@ -137,29 +120,11 @@ func getNowPlaying() (Details, error) {
 		}, nil
 	}
 
-	name, err := tellMusic("get {name} of current track")
-	if err != nil {
-		return Details{}, err
-	}
-	artist, err := tellMusic("get {artist} of current track")
-	if err != nil {
-		return Details{}, err
-	}
-	album, err := tellMusic("get {album} of current track")
-	if err != nil {
-		return Details{}, err
-	}
-	yearDuration, err := tellMusic("get {year, duration} of current track")
-	if err != nil {
-		return Details{}, err
-	}
-
-	year, err := strconv.Atoi(strings.Split(yearDuration, ", ")[0])
-	if err != nil {
-		return Details{}, err
-	}
-
-	duration, err := strconv.ParseFloat(strings.Split(yearDuration, ", ")[1], 64)
+	name := fmt.Sprintf("%s", initialState["Title"])
+	artist := fmt.Sprintf("%s", initialState["Artist"])
+	album := fmt.Sprintf("%s", initialState["Album"])
+	date := fmt.Sprintf("%s", initialState["Date"])
+	year, err := strconv.Atoi(strings.Split(date, "-")[0])
 	if err != nil {
 		return Details{}, err
 	}
@@ -170,13 +135,13 @@ func getNowPlaying() (Details, error) {
 	}
 
 	song := Song{
-		ID:       songID,
-		Name:     name,
-		Artist:   artist,
-		Album:    album,
-		Year:     year,
-		Duration: duration,
-		Artwork:  url,
+		ID:     songID,
+		Name:   name,
+		Artist: artist,
+		Album:  album,
+		Year:   year,
+		// Duration: duration,
+		Artwork: url,
 	}
 
 	songCache.Set(ttlcache.Int64Key(songID), song, 24*time.Hour)
@@ -282,7 +247,7 @@ func (ac *activityConnection) play(details Details) error {
 	// end := time.Now().Add(time.Duration(song.Duration-details.Position) * time.Second)
 	searchURL := fmt.Sprintf("https://music.apple.com/us/search?term=%s", url.QueryEscape(song.Name+" "+song.Artist))
 	if !ac.connected {
-		if err := client.Login("1037157485783564328"); err != nil {
+		if err := client.Login("1037215044141854721"); err != nil {
 			log.WithError(err).Fatal("could not create rich presence client")
 		}
 		ac.connected = true
