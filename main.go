@@ -288,7 +288,7 @@ func (ac *activityConnection) play(details Details) error {
 
 	start := time.Now().Add(-1 * time.Duration(details.Position) * time.Second)
 	// end := time.Now().Add(time.Duration(song.Duration-details.Position) * time.Second)
-	searchURL := fmt.Sprintf("https://music.apple.com/us/search?term=%s", url.QueryEscape(song.Name+" "+song.Artist))
+	searchURL := fmt.Sprintf("https://www.last.fm/search/tracks?q=%s", url.QueryEscape(song.Artist+" "+song.Name))
 	if !ac.connected {
 		if err := client.Login("1037215044141854721"); err != nil {
 			log.WithError(err).Fatal("could not create rich presence client")
@@ -309,7 +309,7 @@ func (ac *activityConnection) play(details Details) error {
 		},
 		Buttons: []*client.Button{
 			{
-				Label: "Search on Apple Music",
+				Label: "Search on Last.fm",
 				Url:   searchURL,
 			},
 		},
