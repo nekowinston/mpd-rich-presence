@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,17 +16,20 @@ import (
 	"github.com/cheshir/ttlcache"
 	"github.com/fhs/gompd/v2/mpd"
 	"github.com/hugolgst/rich-go/client"
+	"github.com/irlndts/go-discogs"
 )
 
 const statePlaying = "play"
 
 var (
-	shortSleep   = 5 * time.Second
-	longSleep    = time.Minute
-	songCache    = ttlcache.New(time.Minute)
-	artworkCache = ttlcache.New(time.Minute)
-	mpdClient    *mpd.Client
-	err          error
+	shortSleep    = 5 * time.Second
+	longSleep     = time.Minute
+	songCache     = ttlcache.New(time.Minute)
+	artworkCache  = ttlcache.New(time.Minute)
+	mpdClient     *mpd.Client
+	discogsClient discogs.Discogs
+	discogsToken  = flag.String("discogs-token", "", "Discogs token")
+	err           error
 )
 
 func main() {
@@ -40,6 +44,16 @@ func main() {
 		log.WithError(err).Fatal("failed to connect to MPD server")
 	}
 	defer mpdClient.Close()
+
+	flag.Parse()
+	if len(*discogsToken) != 0 {
+		log.Info("using discogs")
+		discogsClient, err = discogs.New(&discogs.Options{
+			UserAgent: "MPD Rich Presence",
+			Currency:  "USD",
+			Token:     *discogsToken,
+		})
+	}
 
 	if os.Getenv("DARP_DEBUG") != "" {
 		log.SetLevelFromString("debug")
@@ -128,19 +142,34 @@ func getNowPlaying() (Details, error) {
 		return Details{}, err
 	}
 
+	artworkSource := ""
 	url, err := getArtwork(artist, album, name)
 	if err != nil {
 		return Details{}, err
 	}
+	if url != "" {
+		artworkSource = "apple"
+	}
+
+	if url == "" && len(*discogsToken) != 0 {
+		url, err = getArtworkFromDiscogs(artist, album)
+		if err != nil {
+			log.WithError(err).Warn("could not get artwork from discogs")
+		}
+		if url != "" {
+			artworkSource = "discogs"
+		}
+	}
 
 	song := Song{
-		ID:       songID,
-		Name:     name,
-		Artist:   artist,
-		Album:    album,
-		Year:     year,
-		Duration: duration,
-		Artwork:  url,
+		ID:            songID,
+		Name:          name,
+		Artist:        artist,
+		Album:         album,
+		Year:          year,
+		Duration:      duration,
+		Artwork:       url,
+		ArtworkSource: artworkSource,
 	}
 
 	songCache.Set(ttlcache.Int64Key(songID), song, 24*time.Hour)
@@ -159,13 +188,14 @@ type Details struct {
 }
 
 type Song struct {
-	ID       int64
-	Name     string
-	Artist   string
-	Album    string
-	Year     int
-	Duration float64
-	Artwork  string
+	ID            int64
+	Name          string
+	Artist        string
+	Album         string
+	Year          int
+	Duration      float64
+	Artwork       string
+	ArtworkSource string
 }
 
 func getArtwork(artist, album, song string) (string, error) {
@@ -197,6 +227,20 @@ func getArtwork(artist, album, song string) (string, error) {
 	url := result.Results[0].ArtworkUrl100
 	artworkCache.Set(ttlcache.StringKey(key), url, time.Hour)
 	return url, nil
+}
+
+func getArtworkFromDiscogs(artist, album string) (string, error) {
+	res, err := discogsClient.Search(discogs.SearchRequest{
+		Artist:       artist,
+		ReleaseTitle: album,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(res.Results) == 0 {
+		return "", nil
+	}
+	return res.Results[0].Thumb, nil
 }
 
 type getArtworkResult struct {
@@ -279,6 +323,7 @@ func (ac *activityConnection) play(details Details) error {
 		WithField("year", song.Year).
 		WithField("duration", time.Duration(song.Duration)*time.Second).
 		WithField("position", time.Duration(details.Position)*time.Second).
+		WithField("artworkSource", song.ArtworkSource).
 		Info("now playing")
 	return nil
 }
