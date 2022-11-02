@@ -57,9 +57,6 @@ changelog:
       order: 9999
 before:
   hooks:
-    - cmd: go mod tidy
-gomod:
-  proxy: true
-  gobinary: go
+    - go mod tidy
 
 # yaml-language-server: $schema=https://goreleaser.com/static/schema-pro.json
