@@ -119,11 +119,10 @@ func getNowPlaying() (Details, error) {
 		}, nil
 	}
 
-	name := fmt.Sprintf("%s", initialState["Title"])
-	artist := fmt.Sprintf("%s", initialState["Artist"])
-	album := fmt.Sprintf("%s", initialState["Album"])
-	date := fmt.Sprintf("%s", initialState["Date"])
-	year, err := strconv.Atoi(strings.Split(date, "-")[0])
+	name := string(initialState["Title"])
+	artist := string(initialState["Artist"])
+	album := string(initialState["Album"])
+	year, err := strconv.Atoi(strings.Split(string(initialState["Date"]), "-")[0])
 	if err != nil {
 		return Details{}, err
 	}
