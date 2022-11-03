@@ -6,7 +6,7 @@ brews:
   - name: mpd-rich-presence
     tap:
       owner: nekowinston
-      name: tap
+      name: homebrew-tap
     folder: Formula
     description: 'MPD Rich Presence for Discord'
     homepage: 'https://winston.sh'
