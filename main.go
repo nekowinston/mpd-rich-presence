@@ -18,7 +18,7 @@ import (
 const (
 	apiKey       = "2236babefa8ebb3d93ea467560d00d04"
 	apiSecret    = "94d9a09c0cd5be955c4afaeaffcaefcd"
-	longSleep    = time.Minute
+	longSleep    = 30 * time.Second
 	shortSleep   = 5 * time.Second
 	statePlaying = "play"
 )
@@ -36,6 +36,7 @@ func main() {
 	defer func() {
 		_ = songCache.Close()
 		_ = artworkCache.Close()
+		_ = urlCache.Close()
 	}()
 
 	// Connect to MPD server
@@ -84,7 +85,7 @@ func timePtr(t time.Time) *time.Time {
 func getNowPlaying() (Details, error) {
 	init := time.Now()
 	defer func() {
-		log.WithField("took", time.Since(init)).Info("got info")
+		log.WithField("took", time.Since(init)).Debug("got info")
 	}()
 
 	status, err := mpdClient.Status()
