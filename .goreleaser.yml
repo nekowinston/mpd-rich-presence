@@ -2,6 +2,22 @@ release:
   footer: |
     **Full Changelog**: https://github.com/nekowinston/mpd-rich-presence/compare/{{ .PreviousTag }}...{{ .Tag }}
 
+brews:
+  - name: mpd-rich-presence
+    tap:
+      owner: nekowinston
+      name: tap
+    folder: Formula
+    description: 'MPD Rich Presence for Discord'
+    homepage: 'https://winston.sh'
+    dependencies:
+      - name: mpd
+    service: |
+      run [opt_bin/"mpd-rich-presence"]
+      keep_alive true
+      log_path var/"log/mpd-rich-presence.log"
+      error_log_path var/"log/mpd-rich-presence.log"
+
 builds:
   - id: mpd-rich-presence
     goos:
