@@ -18,6 +18,25 @@ brews:
       log_path var/"log/mpd-rich-presence.log"
       error_log_path var/"log/mpd-rich-presence.log"
 
+aurs:
+  - name: mpd-rich-presence-bin
+    description: "Service to display the currently playing song in MPD as your Discord Rich Presence."
+    maintainers:
+      - 'nekowinston <hey@winston.sh>'
+    contributors:
+      - 'nekowinston <hey@winston.sh>'
+    license: "MIT"
+    private_key: '{{ .Env.AUR_KEY }}'
+    git_url: 'ssh://aur@aur.archlinux.org/mpd-rich-presence-bin.git'
+    depends:
+      - mpd
+    package: |-
+      # bin
+      install -Dm755 "./mpd-rich-presence" "${pkgdir}/usr/bin/mpd-rich-presence"
+      # license
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/mpd-rich-presence/LICENSE"
+      # service
+      install -Dm644 "./mpd-rich-presence.service" "${pkgdir}/usr/lib/systemd/user/mpd-rich-presence.service"
 builds:
   - id: mpd-rich-presence
     goos:
@@ -33,6 +52,7 @@ builds:
       - -trimpath
     env:
       - CGO_ENABLED=0
+
 archives:
   - id: default
     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
@@ -44,6 +64,7 @@ archives:
       - src: README*
       - src: changelog*
       - src: CHANGELOG*
+
 changelog:
   filters:
     exclude:
@@ -71,6 +92,7 @@ changelog:
       order: 400
     - title: Other work
       order: 9999
+
 before:
   hooks:
     - go mod tidy
