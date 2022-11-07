@@ -31,6 +31,45 @@ brew services start nekowinston/tap/mpd-rich-presence
 
 Remember to restart this service after updates.
 
+### Usage
+
+Configuration is available, but not required. The config file can either be
+located in `$XDG_CONFIG_HOME`, `~/.config`, or next to the binary.
+
+Example `mpd-rich-presence.yml`, showing the defaults:
+
+```yaml
+# can be "mpd" or "lastfm"
+branding: mpd
+
+rich_presence:
+  # available keys are:
+  # %album%
+  # %artist%
+  # %title%
+  # %year%
+  image:
+    large: "%album% (%year%)"
+    small: "%title%"
+  upper: "%title%"
+  lower: "by %artist%"
+  button: "View on Last.fm"
+  # can be "remaining" or "elapsed"
+  time: "elapsed"
+
+sleep:
+  long: 30s
+  short: 5s
+
+# you can turn lastfm off, so no queries will be sent to LastFM.
+# Album Art will be empty, it will just show the Logo chosen in "branding"
+lastfm:
+  enabled: true
+  # here you can choose your own api credentials, if you want to
+  apiKey: ""
+  apiSecret: ""
+```
+
 ### Credits
 
 Forked from [@caarlos0][caarlos0]'s repository:
