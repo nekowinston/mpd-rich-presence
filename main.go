@@ -13,13 +13,12 @@ import (
 	"github.com/fhs/gompd/v2/mpd"
 	"github.com/hugolgst/rich-go/client"
 	"github.com/shkh/lastfm-go/lastfm"
+	v "github.com/spf13/viper"
 )
 
 const (
 	apiKey       = "2236babefa8ebb3d93ea467560d00d04"
 	apiSecret    = "94d9a09c0cd5be955c4afaeaffcaefcd"
-	longSleep    = 30 * time.Second
-	shortSleep   = 5 * time.Second
 	statePlaying = "play"
 )
 
@@ -28,9 +27,45 @@ var (
 	songCache    = ttlcache.New(time.Minute)
 	urlCache     = ttlcache.New(time.Minute)
 	mpdClient    *mpd.Client
-	lastfmAPI    = lastfm.New(apiKey, apiSecret)
+	lastfmAPI    *lastfm.Api
 	err          error
+	c            *Config
 )
+
+func init() {
+	v.SetConfigName("mpd-rich-presence")
+	v.SetConfigType("yaml")
+	v.AddConfigPath("$XDG_CONFIG_HOME")
+	v.AddConfigPath("$HOME/.config")
+	v.AddConfigPath(".")
+
+	v.SetDefault("branding", "mpd")
+	v.SetDefault("host", "127.0.0.1")
+	v.SetDefault("port", 6600)
+
+	v.SetDefault("sleep.long", 30*time.Second)
+	v.SetDefault("sleep.short", 5*time.Second)
+
+	v.SetDefault("rich_presence.image.large", "%album%")
+	v.SetDefault("rich_presence.image.small", "%title%")
+	v.SetDefault("rich_presence.upper", "%title%")
+	v.SetDefault("rich_presence.lower", "by %artist% (%album%)")
+	v.SetDefault("rich_presence.button", "View on Last.fm")
+	v.SetDefault("rich_presence.time", "elapsed")
+
+	v.SetDefault("lastfm.enabled", true)
+	v.SetDefault("lastfm.apikey", apiKey)
+	v.SetDefault("lastfm.apisecret", apiSecret)
+
+	if err := v.ReadInConfig(); err != nil {
+		log.Warn("No config file found, using defaults.")
+	}
+
+	if err := v.Unmarshal(&c); err != nil {
+		log.WithError(err).Fatal("failed to unmarshal config")
+	}
+	fmt.Println(c)
+}
 
 func main() {
 	defer func() {
@@ -39,8 +74,11 @@ func main() {
 		_ = urlCache.Close()
 	}()
 
-	// Connect to MPD server
-	mpdClient, err = mpd.Dial("tcp", "127.0.0.1:6600")
+	if c.LastFM.Enabled {
+		lastfmAPI = lastfm.New(c.LastFM.APIKey, c.LastFM.APISecret)
+	}
+
+	mpdClient, err = mpd.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
 	if err != nil {
 		log.WithError(err).Fatal("failed to connect to MPD server")
 	}
@@ -55,9 +93,11 @@ func main() {
 	for {
 		details, err := getNowPlaying()
 		if err != nil {
-			log.WithError(err).WithField("sleep", shortSleep).Warn("will try again soon")
+			log.WithError(err).
+				WithField("sleep", c.Sleep.Short).
+				Warn("will try again soon")
 			ac.stop()
-			time.Sleep(shortSleep)
+			time.Sleep(c.Sleep.Short)
 			continue
 		}
 
@@ -66,20 +106,17 @@ func main() {
 				log.Info("not playing")
 				ac.stop()
 			}
-			time.Sleep(shortSleep)
+			time.Sleep(c.Sleep.Short)
 			continue
 		}
 
 		if err := ac.play(details); err != nil {
-			log.WithError(err).Warn("could not set activity, will retry later")
+			log.WithError(err).
+				Warn("could not set activity, will retry later")
 		}
 
-		time.Sleep(shortSleep)
+		time.Sleep(c.Sleep.Short)
 	}
-}
-
-func timePtr(t time.Time) *time.Time {
-	return &t
 }
 
 func getNowPlaying() (Details, error) {
@@ -99,17 +136,19 @@ func getNowPlaying() (Details, error) {
 		}, nil
 	}
 
-	initialState, err := mpdClient.CurrentSong()
+	current, err := mpdClient.CurrentSong()
 	if err != nil {
 		return Details{}, err
 	}
 
-	songID, err := strconv.ParseInt(initialState["Id"], 10, 64)
+	songID, err := strconv.ParseInt(current["Id"], 10, 64)
 	if err != nil {
 		return Details{}, err
 	}
 
-	position, err := strconv.ParseFloat(strings.Split(status["time"], ":")[0], 64)
+	timeSplit := strings.Split(status["time"], ":")
+
+	position, err := time.ParseDuration(timeSplit[0] + "s")
 	if err != nil {
 		return Details{}, err
 	}
@@ -124,30 +163,35 @@ func getNowPlaying() (Details, error) {
 		}, nil
 	}
 
-	name := string(initialState["Title"])
-	artist := string(initialState["Artist"])
-	album := string(initialState["Album"])
-	year, _ := strconv.Atoi(strings.Split(string(initialState["Date"]), "-")[0])
-	duration, err := strconv.ParseFloat(initialState["Time"], 64)
+	name := current["Title"]
+	artist := current["Artist"]
+	album := current["Album"]
+	albumArtist := current["AlbumArtist"]
+	year, _ := strconv.Atoi(strings.Split(current["Date"], "-")[0])
+	duration, err := time.ParseDuration(timeSplit[1] + "s")
 	if err != nil {
 		return Details{}, err
 	}
 
-	url, artworkURL, err := getArtwork(artist, album)
-	if err != nil {
-		url, artworkURL = "", ""
-		log.WithError(err).Warn("could not get album artwork")
+	var shareURL, artworkURL string
+	if c.LastFM.Enabled {
+		shareURL, artworkURL, err = getArtwork(firstNonEmpty(albumArtist, artist), album)
+		if err != nil {
+			shareURL, artworkURL = "", ""
+			log.WithError(err).Warn("could not get album artwork")
+		}
 	}
 
 	song := Song{
-		ID:       songID,
-		Name:     name,
-		Artist:   artist,
-		Album:    album,
-		Year:     year,
-		Duration: duration,
-		Artwork:  artworkURL,
-		URL:      url,
+		ID:          songID,
+		Name:        name,
+		Artist:      artist,
+		Album:       album,
+		AlbumArtist: albumArtist,
+		Year:        year,
+		Duration:    duration,
+		Artwork:     artworkURL,
+		ShareURL:    shareURL,
 	}
 
 	songCache.Set(ttlcache.Int64Key(songID), song, 24*time.Hour)
@@ -159,9 +203,18 @@ func getNowPlaying() (Details, error) {
 	}, nil
 }
 
+func fmtActivity(s string, d Details) string {
+	song := d.Song
+	s = strings.ReplaceAll(s, "%album%", song.Album)
+	s = strings.ReplaceAll(s, "%artist%", song.Artist)
+	s = strings.ReplaceAll(s, "%title%", song.Name)
+	s = strings.ReplaceAll(s, "%year%", strconv.Itoa(song.Year))
+	return s
+}
+
 type Details struct {
 	Song     Song
-	Position float64
+	Position time.Duration
 	State    string
 }
 
@@ -169,12 +222,13 @@ type Song struct {
 	ID            int64
 	Name          string
 	Artist        string
+	AlbumArtist   string
 	Album         string
 	Year          int
-	Duration      float64
+	Duration      time.Duration
 	Artwork       string
 	ArtworkSource string
-	URL           string
+	ShareURL      string
 }
 
 func getArtwork(artist, album string) (string, string, error) {
@@ -193,23 +247,23 @@ func getArtwork(artist, album string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	url := ""
+	shareURL := ""
 	artwork := ""
 	if res.Images[2].Url != "" {
 		artwork = res.Images[2].Url
 	}
 	if res.Url != "" {
-		url = res.Url
+		shareURL = res.Url
 	}
 	artworkCache.Set(ttlcache.StringKey(key), artwork, time.Hour)
-	urlCache.Set(ttlcache.StringKey(key), url, time.Hour)
-	return url, artwork, nil
+	urlCache.Set(ttlcache.StringKey(key), shareURL, time.Hour)
+	return shareURL, artwork, nil
 }
 
 type activityConnection struct {
 	connected    bool
 	lastSongID   int64
-	lastPosition float64
+	lastPosition time.Duration
 }
 
 func (ac *activityConnection) stop() {
@@ -224,12 +278,16 @@ func (ac *activityConnection) stop() {
 func (ac *activityConnection) play(details Details) error {
 	song := details.Song
 	if ac.lastSongID == song.ID {
-		if details.Position >= ac.lastPosition {
+		after := details.Position >= ac.lastPosition
+		within := details.Position-ac.lastPosition < c.Sleep.Short+time.Second
+		if after && within {
+			progress := details.Position.Seconds() / song.Duration.Seconds()
 			log.
 				WithField("songID", song.ID).
 				WithField("position", details.Position).
-				WithField("progress", details.Position/song.Duration).
+				WithField("progress", fmt.Sprintf("%.2f", progress*100)).
 				Debug("ongoing activity, ignoring")
+			ac.lastPosition = details.Position
 			return nil
 		}
 	}
@@ -243,8 +301,8 @@ func (ac *activityConnection) play(details Details) error {
 	ac.lastPosition = details.Position
 	ac.lastSongID = song.ID
 
-	start := time.Now().Add(-1 * time.Duration(details.Position) * time.Second)
-	end := time.Now().Add(time.Duration(song.Duration-details.Position) * time.Second)
+	start := time.Now().Add(-1 * details.Position)
+	end := time.Now().Add(song.Duration - details.Position)
 	if !ac.connected {
 		if err := client.Login("1037215044141854721"); err != nil {
 			log.WithError(err).Fatal("could not create rich presence client")
@@ -253,27 +311,38 @@ func (ac *activityConnection) play(details Details) error {
 	}
 
 	var buttons []*client.Button
-	if song.URL != "" {
+	if song.ShareURL != "" {
 		buttons = []*client.Button{
 			{
-				Label: "View on Last.fm",
-				Url:   song.URL,
+				Label: c.RP.Button,
+				Url:   song.ShareURL,
 			},
 		}
 	}
 
+	var timeStamps = client.Timestamps{}
+	timeStamps.Start = &start
+
+	if c.RP.Time == "remaining" {
+		timeStamps.End = &end
+	}
+
+	largeImage := "logo"
+	smallImage := "nowplaying"
+	if c.Branding == "lastfm" {
+		largeImage = "lastfm"
+		smallImage = "lastfm-nowplaying"
+	}
+
 	if err := client.SetActivity(client.Activity{
-		State:      fmt.Sprintf("by %s", song.Artist),
-		Details:    song.Name,
-		LargeImage: firstNonEmpty(song.Artwork, "logo"),
-		SmallImage: "nowplaying",
-		LargeText:  song.Album,
-		SmallText:  fmt.Sprintf("%s by %s", song.Name, song.Artist),
-		Timestamps: &client.Timestamps{
-			Start: timePtr(start),
-			End:   timePtr(end),
-		},
-		Buttons: buttons,
+		Details:    fmtActivity(c.RP.Upper, details),
+		State:      fmtActivity(c.RP.Lower, details),
+		LargeText:  fmtActivity(c.RP.Image.Large, details),
+		SmallText:  fmtActivity(c.RP.Image.Small, details),
+		LargeImage: firstNonEmpty(song.Artwork, largeImage),
+		SmallImage: smallImage,
+		Timestamps: &timeStamps,
+		Buttons:    buttons,
 	}); err != nil {
 		return err
 	}
@@ -282,8 +351,8 @@ func (ac *activityConnection) play(details Details) error {
 		WithField("album", song.Album).
 		WithField("artist", song.Artist).
 		WithField("year", song.Year).
-		WithField("duration", time.Duration(song.Duration)*time.Second).
-		WithField("position", time.Duration(details.Position)*time.Second).
+		WithField("duration", song.Duration).
+		WithField("position", details.Position).
 		Info("now playing")
 	return nil
 }
@@ -295,4 +364,30 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+type Config struct {
+	Branding string
+	Host     string
+	Port     uint16
+
+	Sleep struct {
+		Long  time.Duration
+		Short time.Duration
+	}
+	RP struct {
+		Image struct {
+			Large string
+			Small string
+		}
+		Upper  string
+		Lower  string
+		Button string
+		Time   string
+	} `mapstructure:"rich_presence"`
+	LastFM struct {
+		Enabled   bool
+		APIKey    string
+		APISecret string
+	} `mapstructure:"lastfm"`
 }
