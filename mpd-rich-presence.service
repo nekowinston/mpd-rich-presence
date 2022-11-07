@@ -1,0 +1,11 @@
+[Unit]
+Description=mpd-rich-presence
+Requires=mpd.service
+After=mpd.service
+
+[Service]
+ExecStart=mpd-rich-presence
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
