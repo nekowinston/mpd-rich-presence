@@ -39,6 +39,10 @@ located in `$XDG_CONFIG_HOME`, `~/.config`, or next to the binary.
 Example `mpd-rich-presence.yml`, showing the defaults:
 
 ```yaml
+# MPD connection
+host: "127.0.0.1"
+port: 6600
+
 # can be "mpd" or "lastfm"
 branding: mpd
 
@@ -66,8 +70,8 @@ sleep:
 lastfm:
   enabled: true
   # here you can choose your own api credentials, if you want to
-  apiKey: ""
-  apiSecret: ""
+  #apiKey: ""
+  #apiSecret: ""
 ```
 
 ### Credits
