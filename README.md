@@ -72,6 +72,7 @@ rich_presence:
   # available keys are:
   # %album%
   # %artist%
+  # %genre%
   # %title%
   # %year%
   image:
