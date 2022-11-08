@@ -13,7 +13,29 @@ People clicking on your profile can easily view your current track on last.fm.
 
 #### Linux
 
+##### AUR
+
+A package is also available in the AUR:
+
+```bash
+yay -S mpd-rich-presence-bin
+
+# if you want to run it as a service:
+systemctl --user enable mpd-rich-presence.service
+systemctl --user start mpd-rich-presence.service
+```
+
+##### Binary from GitHub releases
+
 Download the binary from the [latest release][release], and execute it.
+
+##### Install from source via go
+
+If you have `go` installed and want to build it from source easily:
+
+```bash
+go install github.com/nekowinston/mpd-rich-presence@latest
+```
 
 #### macOS
 
