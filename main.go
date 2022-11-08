@@ -57,14 +57,13 @@ func init() {
 	v.SetDefault("lastfm.apikey", apiKey)
 	v.SetDefault("lastfm.apisecret", apiSecret)
 
-	if err := v.ReadInConfig(); err != nil {
+	if err = v.ReadInConfig(); err != nil {
 		log.Warn("No config file found, using defaults.")
 	}
 
-	if err := v.Unmarshal(&c); err != nil {
+	if err = v.Unmarshal(&c); err != nil {
 		log.WithError(err).Fatal("failed to unmarshal config")
 	}
-	fmt.Println(c)
 }
 
 func main() {
@@ -167,6 +166,8 @@ func getNowPlaying() (Details, error) {
 	artist := current["Artist"]
 	album := current["Album"]
 	albumArtist := current["AlbumArtist"]
+	genre := current["Genre"]
+
 	year, _ := strconv.Atoi(strings.Split(current["Date"], "-")[0])
 	duration, err := time.ParseDuration(timeSplit[1] + "s")
 	if err != nil {
@@ -188,6 +189,7 @@ func getNowPlaying() (Details, error) {
 		Artist:      artist,
 		Album:       album,
 		AlbumArtist: albumArtist,
+		Genre:       genre,
 		Year:        year,
 		Duration:    duration,
 		Artwork:     artworkURL,
@@ -209,6 +211,7 @@ func fmtActivity(s string, d Details) string {
 	s = strings.ReplaceAll(s, "%artist%", song.Artist)
 	s = strings.ReplaceAll(s, "%title%", song.Name)
 	s = strings.ReplaceAll(s, "%year%", strconv.Itoa(song.Year))
+	s = strings.ReplaceAll(s, "%genre%", song.Genre)
 	return s
 }
 
@@ -222,8 +225,9 @@ type Song struct {
 	ID            int64
 	Name          string
 	Artist        string
-	AlbumArtist   string
 	Album         string
+	AlbumArtist   string
+	Genre         string
 	Year          int
 	Duration      time.Duration
 	Artwork       string
