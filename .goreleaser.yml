@@ -64,6 +64,7 @@ archives:
       - src: README*
       - src: changelog*
       - src: CHANGELOG*
+      - src: "*.service"
 
 changelog:
   filters:
