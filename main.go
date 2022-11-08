@@ -318,7 +318,7 @@ func (ac *activityConnection) play(details Details) error {
 	if song.ShareURL != "" {
 		buttons = []*client.Button{
 			{
-				Label: c.RP.Button,
+				Label: fmtActivity(c.RP.Button, details),
 				Url:   song.ShareURL,
 			},
 		}
