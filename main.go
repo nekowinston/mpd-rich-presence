@@ -40,6 +40,7 @@ func init() {
 	v.AddConfigPath(".")
 
 	v.SetDefault("branding", "mpd")
+	v.SetDefault("use_socket", false)
 	v.SetDefault("host", "127.0.0.1")
 	v.SetDefault("port", 6600)
 
@@ -77,7 +78,11 @@ func main() {
 		lastfmAPI = lastfm.New(c.LastFM.APIKey, c.LastFM.APISecret)
 	}
 
-	mpdClient, err = mpd.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
+	if c.UseSocket {
+		mpdClient, err = mpd.Dial("unix", fmt.Sprintf("%s", c.Host))
+	} else {
+		mpdClient, err = mpd.Dial("tcp", fmt.Sprintf("%s:%d", c.Host, c.Port))
+	}
 	if err != nil {
 		log.WithError(err).Fatal("failed to connect to MPD server")
 	}
@@ -372,6 +377,7 @@ func firstNonEmpty(ss ...string) string {
 
 type Config struct {
 	Branding string
+	UseSocket bool `mapstructure:"use_socket"`
 	Host     string
 	Port     uint16
 
