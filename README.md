@@ -69,6 +69,7 @@ port: 6600
 branding: mpd
 
 rich_presence:
+  appid: "1037215044141854721" # default Discord app id
   # available keys are:
   # %album%
   # %artist%
