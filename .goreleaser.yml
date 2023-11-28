@@ -4,7 +4,7 @@ release:
 
 brews:
   - name: mpd-rich-presence
-    tap:
+    repository:
       owner: nekowinston
       name: homebrew-tap
     folder: Formula
