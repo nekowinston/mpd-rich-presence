@@ -329,7 +329,7 @@ func (ac *activityConnection) play(details Details) error {
 		}
 	}
 
-	var timeStamps = client.Timestamps{}
+	timeStamps := client.Timestamps{}
 	timeStamps.Start = &start
 
 	if c.RP.Time == "remaining" {
@@ -376,10 +376,10 @@ func firstNonEmpty(ss ...string) string {
 }
 
 type Config struct {
-	Branding string
+	Branding  string
 	UseSocket bool `mapstructure:"use_socket"`
-	Host     string
-	Port     uint16
+	Host      string
+	Port      uint16
 
 	Sleep struct {
 		Long  time.Duration
