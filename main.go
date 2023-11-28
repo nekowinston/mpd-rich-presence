@@ -47,6 +47,7 @@ func init() {
 	v.SetDefault("sleep.long", 30*time.Second)
 	v.SetDefault("sleep.short", 5*time.Second)
 
+	v.SetDefault("rich_presence.appid", "1037215044141854721")
 	v.SetDefault("rich_presence.image.large", "%album%")
 	v.SetDefault("rich_presence.image.small", "%title%")
 	v.SetDefault("rich_presence.upper", "%title%")
@@ -313,7 +314,7 @@ func (ac *activityConnection) play(details Details) error {
 	start := time.Now().Add(-1 * details.Position)
 	end := time.Now().Add(song.Duration - details.Position)
 	if !ac.connected {
-		if err := client.Login("1037215044141854721"); err != nil {
+		if err := client.Login(c.RP.AppID); err != nil {
 			log.WithError(err).Fatal("could not create rich presence client")
 		}
 		ac.connected = true
@@ -386,6 +387,7 @@ type Config struct {
 		Short time.Duration
 	}
 	RP struct {
+		AppID  string
 		Image struct {
 			Large string
 			Small string
