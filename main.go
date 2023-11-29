@@ -218,6 +218,7 @@ func fmtActivity(s string, d Details) string {
 	s = strings.ReplaceAll(s, "%title%", song.Name)
 	s = strings.ReplaceAll(s, "%year%", strconv.Itoa(song.Year))
 	s = strings.ReplaceAll(s, "%genre%", song.Genre)
+	s = strings.ReplaceAll(s, "%mpdver%", mpdClient.Version())
 	return s
 }
 

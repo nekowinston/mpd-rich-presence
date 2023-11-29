@@ -76,6 +76,7 @@ rich_presence:
   # %genre%
   # %title%
   # %year%
+  # %mpdver%
   image:
     large: "%album% (%year%)"
     small: "%title%"
